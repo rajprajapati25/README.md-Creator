@@ -1,0 +1,283 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Custom transitions and resets */
+body {
+  font-family: var(--font-sans);
+  background-color: #0d1117;
+  color: #c9d1d9;
+}
+
+/* GitHub Markdown Styles: LIGHT MODE */
+.gh-markdown-light {
+  background-color: #ffffff;
+  color: #1f2328;
+}
+
+.gh-markdown-light h1 {
+  font-size: 2em;
+  font-weight: 600;
+  border-bottom: 1px solid #d0d7de;
+  padding-bottom: 0.3em;
+  margin-top: 24px;
+  margin-bottom: 16px;
+  color: #1f2328;
+}
+
+.gh-markdown-light h2 {
+  font-size: 1.5em;
+  font-weight: 600;
+  border-bottom: 1px solid #d0d7de;
+  padding-bottom: 0.3em;
+  margin-top: 24px;
+  margin-bottom: 16px;
+  color: #1f2328;
+}
+
+.gh-markdown-light h3 {
+  font-size: 1.25em;
+  font-weight: 600;
+  margin-top: 24px;
+  margin-bottom: 16px;
+  color: #1f2328;
+}
+
+.gh-markdown-light p {
+  margin-top: 0;
+  margin-bottom: 16px;
+  line-height: 1.6;
+  color: #1f2328;
+}
+
+.gh-markdown-light a {
+  color: #0969da;
+  text-decoration: none;
+}
+
+.gh-markdown-light a:hover {
+  text-decoration: underline;
+}
+
+.gh-markdown-light code {
+  font-family: var(--font-mono);
+  font-size: 85%;
+  background-color: rgba(175, 184, 193, 0.2);
+  padding: 0.2em 0.4em;
+  border-radius: 6px;
+  color: #1f2328;
+}
+
+.gh-markdown-light pre {
+  background-color: #f6f8fa;
+  padding: 16px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin-top: 0;
+  margin-bottom: 16px;
+}
+
+.gh-markdown-light pre code {
+  font-family: var(--font-mono);
+  font-size: 100%;
+  color: #1f2328;
+  background-color: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+
+.gh-markdown-light ul {
+  list-style-type: disc;
+  margin-top: 0;
+  margin-bottom: 16px;
+  padding-left: 2em;
+}
+
+.gh-markdown-light ol {
+  list-style-type: decimal;
+  margin-top: 0;
+  margin-bottom: 16px;
+  padding-left: 2em;
+}
+
+.gh-markdown-light li {
+  margin-top: 0.25em;
+}
+
+.gh-markdown-light blockquote {
+  padding: 0 1em;
+  color: #57606a;
+  border-left: 0.25em solid #d0d7de;
+  margin: 0 0 16px 0;
+}
+
+.gh-markdown-light table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-top: 0;
+  margin-bottom: 16px;
+}
+
+.gh-markdown-light th, .gh-markdown-light td {
+  padding: 6px 13px;
+  border: 1px solid #d0d7de;
+}
+
+.gh-markdown-light th {
+  background-color: #f6f8fa;
+  font-weight: 600;
+}
+
+.gh-markdown-light tr:nth-child(even) {
+  background-color: #f6f8fa;
+}
+
+
+/* GitHub Markdown Styles: DARK MODE */
+.gh-markdown-dark {
+  background-color: #0d1117;
+  color: #c9d1d9;
+}
+
+.gh-markdown-dark h1 {
+  font-size: 2em;
+  font-weight: 600;
+  border-bottom: 1px solid #21262d;
+  padding-bottom: 0.3em;
+  margin-top: 24px;
+  margin-bottom: 16px;
+  color: #f0f6fc;
+}
+
+.gh-markdown-dark h2 {
+  font-size: 1.5em;
+  font-weight: 600;
+  border-bottom: 1px solid #21262d;
+  padding-bottom: 0.3em;
+  margin-top: 24px;
+  margin-bottom: 16px;
+  color: #f0f6fc;
+}
+
+.gh-markdown-dark h3 {
+  font-size: 1.25em;
+  font-weight: 600;
+  margin-top: 24px;
+  margin-bottom: 16px;
+  color: #f0f6fc;
+}
+
+.gh-markdown-dark p {
+  margin-top: 0;
+  margin-bottom: 16px;
+  line-height: 1.6;
+  color: #c9d1d9;
+}
+
+.gh-markdown-dark a {
+  color: #58a6ff;
+  text-decoration: none;
+}
+
+.gh-markdown-dark a:hover {
+  text-decoration: underline;
+}
+
+.gh-markdown-dark code {
+  font-family: var(--font-mono);
+  font-size: 85%;
+  background-color: rgba(110, 118, 129, 0.4);
+  padding: 0.2em 0.4em;
+  border-radius: 6px;
+  color: #c9d1d9;
+}
+
+.gh-markdown-dark pre {
+  background-color: #161b22;
+  padding: 16px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin-top: 0;
+  margin-bottom: 16px;
+  border: 1px solid #30363d;
+}
+
+.gh-markdown-dark pre code {
+  font-family: var(--font-mono);
+  font-size: 100%;
+  color: #c9d1d9;
+  background-color: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+
+.gh-markdown-dark ul {
+  list-style-type: disc;
+  margin-top: 0;
+  margin-bottom: 16px;
+  padding-left: 2em;
+}
+
+.gh-markdown-dark ol {
+  list-style-type: decimal;
+  margin-top: 0;
+  margin-bottom: 16px;
+  padding-left: 2em;
+}
+
+.gh-markdown-dark li {
+  margin-top: 0.25em;
+}
+
+.gh-markdown-dark blockquote {
+  padding: 0 1em;
+  color: #8b949e;
+  border-left: 0.25em solid #30363d;
+  margin: 0 0 16px 0;
+}
+
+.gh-markdown-dark table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-top: 0;
+  margin-bottom: 16px;
+}
+
+.gh-markdown-dark th, .gh-markdown-dark td {
+  padding: 6px 13px;
+  border: 1px solid #30363d;
+}
+
+.gh-markdown-dark th {
+  background-color: #161b22;
+  font-weight: 600;
+  color: #f0f6fc;
+}
+
+.gh-markdown-dark tr:nth-child(even) {
+  background-color: #161b22;
+}
+
+/* Custom scrollbars styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #30363d;
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #8b949e;
+}

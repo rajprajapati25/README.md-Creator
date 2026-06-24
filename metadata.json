@@ -1,0 +1,6 @@
+{
+  "name": "README.md Creator",
+  "description": "An interactive tool to design, structure, and generate stunning README.md files. Integrates modular toolkits, live synchronized markdown editing, version control, and simulated file workspace structures.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
