@@ -5,13 +5,17 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-
-
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // Middleware
   app.use(express.json({ limit: "15mb" }));
+  
+  // Serve static files from the public folder (Accessible in both dev & prod)
+  app.use(express.static(path.join(process.cwd(), "public")));
+
+  // --- API Routes ---
 
   // API Route: Standard generator proxy
   app.post("/api/generate", async (req, res) => {
@@ -74,21 +78,27 @@ CRITICAL: Return ONLY raw printable markdown formatted content. Do NOT wrap your
     }
   });
 
-  // Serve static files or pass to the Vite Dev Middleware
+  // --- Frontend Routing & Vite Middleware ---
+
   if (process.env.NODE_ENV !== "production") {
+    // Development: Use Vite's Dev Server Middleware
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
+    // Production: Serve pre-built assets from the dist folder
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
+    
+    // Fallback all SPA routes to index.html
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
 
+  // --- Start Server ---
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server launched on port ${PORT}`);
   });

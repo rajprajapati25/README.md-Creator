@@ -6,6 +6,7 @@ import {
   Grid,
   FileCode,
   Layers,
+  CloudUpload,
   Heart,
   Undo2,
   Redo2,
@@ -61,9 +62,10 @@ import rehypeRaw from "rehype-raw";
 import { README_TEMPLATES, TECH_ICONS } from "./data/templates";
 import { RAW_BADGES_DATA } from "./data/badges";
 import { WorkspaceFile, BadgeCreator, TechIcon } from "./types";
-import photo1 from "../assets/photo-1618005182384-a83a8bd57fbe.jpg";
-import photo2 from "../assets/photo-1551288049-bebda4e38f71.jpg";
-import photo3 from "../assets/photo-1531403009284-440f080d1e12.jpg";
+
+const photo1 = "/assets/photo-1618005182384-a83a8bd57fbe.jpg";
+const photo2 = "/assets/photo-1551288049-bebda4e38f71.jpg";
+const photo3 = "/assets/photo-1531403009284-440f080d1e12.jpg";
 
 interface RawBadge {
   id: string;
@@ -77,6 +79,7 @@ export default function App() {
   const [markdown, setMarkdown] = useState<string>(README_TEMPLATES[0].content);
   const [markdownHistoryPast, setMarkdownHistoryPast] = useState<string[]>([]);
   const [markdownHistoryFuture, setMarkdownHistoryFuture] = useState<string[]>([]);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
   
   // State: Active sidebar tab
   const [activeTab, setActiveTab] = useState<"toolbox" | "workspace" | "templates">("toolbox");
@@ -164,7 +167,7 @@ export default function App() {
 
   // State: Interactive Custom Image Tool
   const [imageUrlForm, setImageUrlForm] = useState({
-    url: "assets/photo-1618005182384-a83a8bd57fbe.jpg",
+    url: "/assets/photo-1618005182384-a83a8bd57fbe.jpg",
     alt: "Application Hero Dashboard Mockup",
     align: "center",
     width: "100%",
@@ -194,23 +197,161 @@ export default function App() {
   // State: Searchable raw badge list
   const [badgeSearchQuery, setBadgeSearchQuery] = useState<string>("");
 
-  const parsedRawBadges = useMemo<RawBadge[]>(() => {
+  // Helper: parse badges from the RAW_BADGES_DATA string. If `limit` is provided,
+  // stop after collecting `limit` matches (useful for fast preview).
+  const parseBadges = (input: string, limit?: number): RawBadge[] => {
     const badges: RawBadge[] = [];
-    const regex = /!\[(.*?)\]\((.*?)\)/g;
-    let match;
+    const combined = /!\[(.*?)\]\((.*?)\)|<img\b[^>]*src=["']([^"']+)["'][^>]*>/gi;
+    let m: RegExpExecArray | null;
 
-    while ((match = regex.exec(RAW_BADGES_DATA)) !== null) {
-      const [, name, imageUrl] = match;
-      badges.push({
-        id: name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, ""),
-        name,
-        imageUrl,
-        markdown: match[0]
-      });
+    while ((m = combined.exec(input)) !== null) {
+      let name = "";
+      let src = "";
+
+      if (m[1] && m[2]) {
+        // Markdown image
+        name = m[1];
+        src = m[2];
+      } else if (m[3]) {
+        // HTML <img> tag
+        src = m[3];
+        const tagText = m[0];
+        const altMatch = /alt=["']([^"']+)["']/i.exec(tagText);
+        if (altMatch && altMatch[1]) {
+          name = altMatch[1];
+        } else {
+          try {
+            const url = new URL(src, window.location.href);
+            const last = url.pathname.split('/').pop() || src;
+            name = decodeURIComponent(last.replace(/(-|_|%20)/g, ' '));
+          } catch (e) {
+            name = src;
+          }
+        }
+      }
+
+      const id = name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+      const markdown = `![${name}](${src})`;
+
+      if (!badges.some(b => b.imageUrl === src || b.id === id)) {
+        badges.push({ id, name, imageUrl: src, markdown });
+      }
+
+      if (limit && badges.length >= limit) break;
     }
 
     return badges;
-  }, []);
+  };
+
+  // Async, non-blocking parser that yields to the event loop in batches
+  const parseBadgesAsync = async (input: string): Promise<RawBadge[]> => {
+    const badges: RawBadge[] = [];
+    const combined = /!\[(.*?)\]\((.*?)\)|<img\b[^>]*src=["']([^"']+)["'][^>]*>/gi;
+    let m: RegExpExecArray | null;
+    let iterations = 0;
+    const BATCH = 500;
+
+    while ((m = combined.exec(input)) !== null) {
+      let name = "";
+      let src = "";
+
+      if (m[1] && m[2]) {
+        name = m[1];
+        src = m[2];
+      } else if (m[3]) {
+        src = m[3];
+        const tagText = m[0];
+        const altMatch = /alt=["']([^"']+)["']/i.exec(tagText);
+        if (altMatch && altMatch[1]) {
+          name = altMatch[1];
+        } else {
+          try {
+            const url = new URL(src, window.location.href);
+            const last = url.pathname.split('/').pop() || src;
+            name = decodeURIComponent(last.replace(/(-|_|%20)/g, ' '));
+          } catch (e) {
+            name = src;
+          }
+        }
+      }
+
+      const id = name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+      const markdown = `![${name}](${src})`;
+
+      if (!badges.some(b => b.imageUrl === src || b.id === id)) {
+        badges.push({ id, name, imageUrl: src, markdown });
+      }
+
+      iterations++;
+      if (iterations % BATCH === 0) await new Promise(r => setTimeout(r, 0));
+    }
+
+    return badges;
+  };
+
+  // Non-blocking: search RAW_BADGES_DATA for matches without parsing full list
+  const searchRawBadgesInString = (query: string, cap = 200): RawBadge[] => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    const results: RawBadge[] = [];
+    const combined = /!\[(.*?)\]\((.*?)\)|<img\b[^>]*src=["']([^"']+)["'][^>]*>/gi;
+    let m: RegExpExecArray | null;
+
+    while ((m = combined.exec(RAW_BADGES_DATA)) !== null) {
+      let name = "";
+      let src = "";
+
+      if (m[1] && m[2]) {
+        name = m[1];
+        src = m[2];
+      } else if (m[3]) {
+        src = m[3];
+        const tagText = m[0];
+        const altMatch = /alt=["']([^"']+)["']/i.exec(tagText);
+        if (altMatch && altMatch[1]) name = altMatch[1];
+        else {
+          try {
+            const url = new URL(src, window.location.href);
+            name = decodeURIComponent((url.pathname.split('/').pop() || src).replace(/(-|_|%20)/g, ' '));
+          } catch (e) {
+            name = src;
+          }
+        }
+      }
+
+      if (name.toLowerCase().includes(q)) {
+        const id = name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+        const markdown = `![${name}](${src})`;
+        if (!results.some(r => r.imageUrl === src || r.id === id)) {
+          results.push({ id, name, imageUrl: src, markdown });
+        }
+      }
+
+      if (results.length >= cap) break;
+    }
+
+    return results;
+  };
+
+  // Preview: parse only the first 20 badges for quick UI load
+  const previewBadges = useMemo<RawBadge[]>(() => parseBadges(RAW_BADGES_DATA, 20), []);
+
+  // Full parsed list is computed on demand (first search) to reduce initial load
+  const [fullParsedBadges, setFullParsedBadges] = useState<RawBadge[] | null>(null);
+
+  const parsingRef = useRef(false);
+  useEffect(() => {
+    if (badgeSearchQuery.trim() !== "" && fullParsedBadges === null && !parsingRef.current) {
+      parsingRef.current = true;
+      // Kick off non-blocking parse in background
+      parseBadgesAsync(RAW_BADGES_DATA).then(parsed => {
+        setFullParsedBadges(parsed);
+        parsingRef.current = false;
+      }).catch(() => {
+        parsingRef.current = false;
+      });
+    }
+  }, [badgeSearchQuery, fullParsedBadges]);
 
   // State: Local Virtual Workspace files (Simulated file tree with editable contents)
   const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFile[]>([
@@ -289,12 +430,15 @@ root.render(<App />);`
     { 
       id: "6", 
       name: "dashboard-mockup.png", 
-      path: "assets/dashboard-mockup.png", 
+      path: "/assets/dashboard-mockup.png", 
       isFolder: false, 
       parentId: "5", 
-      content: "IMAGE_MOCK_DATA_URL:assets/photo-1551288049-bebda4e38f71.jpg" 
+      content: "IMAGE_MOCK_DATA_URL:/assets/photo-1551288049-bebda4e38f71.jpg" 
     }
   ]);
+
+  // When true, skip heavy markdown preview rendering to keep UI responsive
+  const [suspendPreview, setSuspendPreview] = useState<boolean>(false);
 
   // State: Add File popup form values
   const [newFileName, setNewFileName] = useState<string>("");
@@ -356,7 +500,10 @@ root.render(<App />);`
   const insertAtCursor = (textToInsert: string) => {
     const textarea = editorContainerRef.current;
     if (!textarea) {
+      // suspend preview render briefly to avoid heavy re-render
+      setSuspendPreview(true);
       setMarkdown(prev => prev + "\n" + textToInsert);
+      setTimeout(() => setSuspendPreview(false), 150);
       return;
     }
     
@@ -369,6 +516,8 @@ root.render(<App />);`
     const textBefore = markdown.substring(0, startPos);
     const textAfter = markdown.substring(endPos);
     
+    // suspend preview rendering while we update to keep insertion responsive
+    setSuspendPreview(true);
     updateMarkdown(textBefore + textToInsert + textAfter);
     
     // Resume focus and restore scroll positions
@@ -382,6 +531,8 @@ root.render(<App />);`
       if (previewContainerRef.current && previewScrollTop !== null) {
         previewContainerRef.current.scrollTop = previewScrollTop;
       }
+      // resume preview rendering shortly after insertion
+      setTimeout(() => setSuspendPreview(false), 100);
     }, 50);
   };
 
@@ -550,35 +701,34 @@ await engine.broadcast('INIT_BOOTSTRAP_SEQUENCE');
   };
 
   const insertRawBadge = (badge: RawBadge) => {
-    insertAtCursor(`\n${badge.markdown}\n`);
+    // show immediate feedback while insertion happens
+    triggerNotification(`Inserting ${badge.name}...`, "info");
+    setTimeout(() => {
+      insertAtCursor(`\n${badge.markdown}\n`);
+      triggerNotification("Badge inserted!");
+    }, 60);
   };
 
   const generateUniqueId = (): string => Math.random().toString(36).substring(2, 9);
 
   const isTextFileName = (fileName: string): boolean => /\.(txt|md|json|js|ts|tsx|jsx|css|html|xml|yaml|yml|sh|py|go|rs|java|c|cpp|h|ini|conf|env|env\.example|lock)$/i.test(fileName);
 
-  const readFileContent = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      const isImage = /\.(png|jpg|jpeg|gif|svg|webp)$/i.test(file.name);
-      const readCallback = (event: ProgressEvent<FileReader>) => {
-        const result = event.target?.result;
-        if (typeof result === "string") {
-          resolve(isImage ? `IMAGE_MOCK_DATA_URL:${result}` : result);
-        } else {
-          reject(new Error("Unsupported file format"));
-        }
-      };
-      reader.onload = readCallback;
-      reader.onerror = () => reject(new Error("Failed to read file"));
-
-      if (isImage || !isTextFileName(file.name)) {
-        reader.readAsDataURL(file);
+const readFileContent = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    const isImage = /\.(png|jpg|jpeg|gif|svg|webp)$/i.test(file.name);
+    reader.onload = (event) => {
+      const result = event.target?.result;
+      if (typeof result === "string") {
+        resolve(result); // Keeps the direct binary base64 URL safe for local rendering
       } else {
-        reader.readAsText(file);
+        reject(new Error("Unsupported file format"));
       }
-    });
-  };
+    };
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
+};
 
   const collectFilesFromDataTransferItems = async (items: DataTransferItemList): Promise<File[]> => {
     const fileList: File[] = [];
@@ -626,107 +776,171 @@ await engine.broadcast('INIT_BOOTSTRAP_SEQUENCE');
     return fileList;
   };
 
-  const addUploadedFilesToWorkspace = async (files: File[]) => {
-    if (files.length === 0) return;
+// Helper to recursively traverse dropped directories and extract files, preserving the root folder
+const getFilesFromEntry = async (entry: FileSystemEntry, currentPath = ""): Promise<File[]> => {
+  const files: File[] = [];
 
-    const currentFiles = [...workspaceFiles];
-    const folderMap = new Map<string, string>(currentFiles.filter(f => f.isFolder).map(f => [normalizePath(f.path), f.id]));
+  // If it's the root folder on the first iteration, we include its name in the path structure
+  const entryName = entry.name;
+  const nextPath = currentPath ? `${currentPath}/${entryName}` : entryName;
 
-    const ensureFolderNode = (folderPath: string): string | null => {
-      const normalized = normalizePath(folderPath);
-      if (!normalized) return null;
-
-      const segments = normalized.split("/");
-      let parentId: string | null = null;
-      let currentPath = "";
-
-      for (const segment of segments) {
-        currentPath = currentPath ? `${currentPath}/${segment}` : segment;
-        if (folderMap.has(currentPath)) {
-          parentId = folderMap.get(currentPath)!;
-          continue;
-        }
-
-        const folderId = generateUniqueId();
-        const folderNode: WorkspaceFile = {
-          id: folderId,
-          name: segment,
-          path: currentPath,
-          isFolder: true,
-          parentId,
-          content: ""
-        };
-        currentFiles.push(folderNode);
-        folderMap.set(currentPath, folderId);
-        parentId = folderId;
+  if (entry.isFile) {
+    const file = await new Promise<File>((resolve, reject) => {
+      (entry as FileSystemFileEntry).file(resolve, reject);
+    });
+    
+    // Fallback if currentPath is empty (e.g., a single file was dropped instead of a folder)
+    const relativePath = currentPath ? `${nextPath}` : file.name;
+    
+    Object.defineProperty(file, "webkitRelativePath", {
+      value: relativePath,
+      writable: false,
+    });
+    files.push(file);
+  } else if (entry.isDirectory) {
+    const dirReader = (entry as FileSystemDirectoryEntry).createReader();
+    
+    const readAllEntries = async (): Promise<FileSystemEntry[]> => {
+      const allEntries: FileSystemEntry[] = [];
+      let entries = await new Promise<FileSystemEntry[]>((resolve, reject) => {
+        dirReader.readEntries(resolve, reject);
+      });
+      while (entries.length > 0) {
+        allEntries.push(...entries);
+        entries = await new Promise<FileSystemEntry[]>((resolve, reject) => {
+          dirReader.readEntries(resolve, reject);
+        });
       }
-
-      return parentId;
+      return allEntries;
     };
 
-    const newNodes: WorkspaceFile[] = [];
+    const entries = await readAllEntries();
+    
+    for (const subEntry of entries) {
+      // Pass the constructed path down to keep the folder structure intact
+      const subFiles = await getFilesFromEntry(subEntry, nextPath);
+      files.push(...subFiles);
+    }
+  }
 
-    for (const file of files) {
-      const pathSource = (file as any).webkitRelativePath || file.name;
-      const normalizedPath = normalizePath(pathSource);
-      const pathParts = normalizedPath.split("/");
-      const fileName = pathParts.pop() || file.name;
-      const folderSegmentPath = pathParts.join("/");
-      const parentId = folderSegmentPath ? ensureFolderNode(folderSegmentPath) : null;
-      const fileContent = await readFileContent(file);
+  return files;
+};
 
-      const fileNode: WorkspaceFile = {
-        id: generateUniqueId(),
-        name: fileName,
-        path: normalizedPath,
-        content: fileContent,
-        isFolder: false,
-        parentId
+const addUploadedFilesToWorkspace = async (files: File[]) => {
+  if (files.length === 0) return;
+
+  const currentFiles = [...workspaceFiles];
+  const folderMap = new Map<string, string>(
+    currentFiles.filter(f => f.isFolder).map(f => [normalizePath(f.path), f.id])
+  );
+
+  const ensureFolderNode = (folderPath: string): string | null => {
+    const normalized = normalizePath(folderPath);
+    if (!normalized) return null;
+
+    const segments = normalized.split("/");
+    let parentId: string | null = null;
+    let currentPath = "";
+
+    for (const segment of segments) {
+      currentPath = currentPath ? `${currentPath}/${segment}` : segment;
+      if (folderMap.has(currentPath)) {
+        parentId = folderMap.get(currentPath)!;
+        continue;
+      }
+
+      const folderId = generateUniqueId();
+      const folderNode: WorkspaceFile = {
+        id: folderId,
+        name: segment,
+        path: currentPath,
+        isFolder: true,
+        parentId,
+        content: ""
       };
-      newNodes.push(fileNode);
+      currentFiles.push(folderNode);
+      folderMap.set(currentPath, folderId);
+      parentId = folderId;
     }
 
-    setWorkspaceFiles(recomputeWorkspacePaths([...currentFiles, ...newNodes]));
-    triggerNotification(`Imported ${newNodes.length} ${newNodes.length === 1 ? "item" : "items"}.`, "success");
+    return parentId;
   };
 
-  const handleUploadedFiles = async (files: FileList | File[]) => {
-    const items = Array.from(files as any as File[]);
-    if (items.length === 0) return;
-    await addUploadedFilesToWorkspace(items);
+  const newNodes: WorkspaceFile[] = [];
+
+  for (const file of files) {
+    const pathSource = (file as any).webkitRelativePath || file.name;
+    const normalizedPath = normalizePath(pathSource);
+    const pathParts = normalizedPath.split("/");
+    const fileName = pathParts.pop() || file.name;
+    const folderSegmentPath = pathParts.join("/");
+    
+    // This will now dynamically generate the dropped root folder wrapper as well!
+    const parentId = folderSegmentPath ? ensureFolderNode(folderSegmentPath) : null;
+    const fileContent = await readFileContent(file);
+
+    const fileNode: WorkspaceFile = {
+      id: generateUniqueId(),
+      name: fileName,
+      path: normalizedPath,
+      content: fileContent,
+      isFolder: false,
+      parentId
+    };
+    newNodes.push(fileNode);
+  }
+
+  setWorkspaceFiles(recomputeWorkspacePaths([...currentFiles, ...newNodes]));
+  triggerNotification(`Imported ${newNodes.length} ${newNodes.length === 1 ? "item" : "items"}.`, "success");
+};
+
+const handleUploadedFiles = async (fileList: FileList) => {
+    const filesArray: File[] = [];
+    for (let i = 0; i < fileList.length; i++) {
+      filesArray.push(fileList[i]);
+    }
+    // This passes the multiple files (with their respective directory paths preserved) to your workspace builder
+    await addUploadedFilesToWorkspace(filesArray);
   };
 
-  const handleUploaderDrop = async (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
+const handleUploaderDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+  e.preventDefault();
+  e.stopPropagation();
 
-    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
-      const files = await collectFilesFromDataTransferItems(e.dataTransfer.items);
-      if (files.length > 0) {
-        await addUploadedFilesToWorkspace(files);
-        return;
+  if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+    const fileTasks: Promise<File[]>[] = [];
+    
+    for (let i = 0; i < e.dataTransfer.items.length; i++) {
+      const item = e.dataTransfer.items[i];
+      const entry = item.webkitGetAsEntry();
+      if (entry) {
+        fileTasks.push(getFilesFromEntry(entry));
       }
     }
 
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      await addUploadedFilesToWorkspace(Array.from(e.dataTransfer.files));
-    }
-  };
+    const resolvedGroups = await Promise.all(fileTasks);
+    const flattenedFiles = resolvedGroups.flat();
 
-  const handleUploadedFile = (file: File) => {
-    handleUploadedFiles([file]);
-  };
+    if (flattenedFiles.length > 0) {
+      await addUploadedFilesToWorkspace(flattenedFiles);
+    }
+  }
+};
 
-  const resolveWorkspaceImageSource = (file: WorkspaceFile): string | null => {
-    if (!file || file.isFolder) return null;
-    if (file.content.startsWith("IMAGE_MOCK_DATA_URL:")) {
-      return file.content.replace("IMAGE_MOCK_DATA_URL:", "").trim();
-    }
-    if (file.content.startsWith("data:") || /^https?:\/\//i.test(file.content)) {
-      return file.content.trim();
-    }
-    return null;
-  };
+const resolveWorkspaceImageSource = (file: WorkspaceFile): string | null => {
+  if (!file || file.isFolder) return null;
+  if (file.content.startsWith("IMAGE_MOCK_DATA_URL:")) {
+    return file.content.replace("IMAGE_MOCK_DATA_URL:", "").trim();
+  }
+  if (file.content.startsWith("data:") || /^https?:\/\//i.test(file.content)) {
+    return file.content.trim();
+  }
+  // Handle public folder paths
+  if (file.content.startsWith("/assets/")) {
+    return file.content.trim();
+  }
+  return null;
+};
 
   // SemVer Version Control and Release Logs
   const triggerIncrementVersion = (type: "patch" | "minor" | "major") => {
@@ -843,7 +1057,7 @@ ${generateWorkspaceTreeString()}
     const generatedMarkdown = `# 🚀 ${projName.toUpperCase()}
 
 <div align="center">
-  <img src="{photo1}" alt="${projName} Logo" width="140" style="border-radius: 20%;" />
+  <img src="/assets/photo-1618005182384-a83a8bd57fbe.jpg" alt="${projName} Logo" width="140" style="border-radius: 20%;" />
   <h3>${projDesc}</h3>
   <p>Providing pristine reactive pipelines, optimized package dependencies, and robust environment setups.</p>
 
@@ -939,7 +1153,7 @@ Distributed under the **MIT License**. Created by Raj Prajapati.
     // Determine type by extension
     const isImage = /\.(png|jpg|jpeg|gif|svg|webp)$/i.test(newFileName);
     const contentPlaceholder = isImage 
-      ? `IMAGE_MOCK_DATA_URL:assets/photo-1531403009284-440f080d1e12.jpg`
+      ? `IMAGE_MOCK_DATA_URL:/assets/photo-1531403009284-440f080d1e12.jpg`
       : newFileContent || `// Contents of ${newFileName}\n// Add code or details here.`;
 
     const newFile: WorkspaceFile = {
@@ -1168,6 +1382,30 @@ Distributed under the **MIT License**. Created by Raj Prajapati.
     };
   }, [splitPercent]);
 
+  // Local Workspace Markdown Image tag resolver
+  const resolveLocalWorkspaceImages = (markdownContent: string): string => {
+    let processedMarkdown = markdownContent;
+    // Regex matching image anchors: ![alt](path)
+    const imageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
+
+    processedMarkdown = processedMarkdown.replace(imageRegex, (match, altText, imagePath) => {
+      // Clean string paths from leading dots/slashes
+      const cleanPath = imagePath.replace(/^(\.\/|\/)/, "");
+
+      // Match the file inside workspace logs
+      const foundFile = workspaceFiles.find(
+        (f) => !f.isFolder && f.path.replace(/^(\.\/|\/)/, "") === cleanPath
+      );
+
+      if (foundFile && foundFile.content) {
+        return `![${altText}](${foundFile.content})`;
+      }
+      return match;
+    });
+
+    return processedMarkdown;
+  };
+  
   return (
     <div className="flex flex-col h-screen w-screen bg-[#0D1117] text-[#C9D1D9] font-sans overflow-hidden select-none">
       
@@ -1825,6 +2063,17 @@ Distributed under the **MIT License**. Created by Raj Prajapati.
                   </button>
                 </div>
 
+{/*List of Badges in TXT File*/}
+<div className="group p-3 bg-[#161B22] border border-[#30363D] rounded-lg transition-colors duration-200">
+  <a href="/assets/List_of_Badge_Library.txt" target="_blank" rel="noopener noreferrer" className="flex items-center justify-between">
+    <h4 className="text-xs font-bold text-white flex items-center gap-1.5 transition-colors duration-200 group-hover:text-blue-500">
+      <FileCode className="w-4 h-4 text-[#F4AA41] transition-colors duration-200 group-hover:text-blue-500" />
+      <span>List of Badge Library</span>
+    </h4>
+    <span className="text-[10px] text-[#F4AA41] font-bold transition-colors duration-200 group-hover:text-blue-500">.txt</span>
+  </a>
+</div>
+
                 {/* 8. Raw Badge Search & Insert Library */}
                 <div className="p-3 bg-[#161B22] border border-[#30363D] rounded-lg space-y-3">
                   <div className="flex items-center justify-between">
@@ -1851,8 +2100,18 @@ Distributed under the **MIT License**. Created by Raj Prajapati.
                   {/* Badges list */}
                   <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
                     {(() => {
-                      const search = badgeSearchQuery.toLowerCase();
-                      const list = parsedRawBadges.filter(badge => badge.name.toLowerCase().includes(search));
+                      const search = badgeSearchQuery.trim().toLowerCase();
+                      let list: RawBadge[] = [];
+                      if (search === "") {
+                        list = previewBadges;
+                      } else {
+                        if (fullParsedBadges) {
+                          list = fullParsedBadges.filter(badge => badge.name.toLowerCase().includes(search));
+                        } else {
+                          // quick non-blocking scan over the raw string to find matches
+                          list = searchRawBadgesInString(search, 300);
+                        }
+                      } 
 
                       if (list.length === 0) {
                         return <p className="text-[10px] text-slate-500 text-center py-4">No matching badges found.</p>;
@@ -1927,40 +2186,95 @@ Distributed under the **MIT License**. Created by Raj Prajapati.
                       <span>Simulate File Node</span>
                     </p>
                     
-                    {/* Drag-and-drop file uploader */}
-                    <div className="space-y-1">
-                      <label className="block text-[9px] text-[#8B949E] uppercase font-bold">Upload Local File / Folder / Project</label>
-                      <div
-                        onDragOver={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                        }}
-                        onDrop={handleUploaderDrop}
-                        className="border-2 border-dashed border-[#30363D] hover:border-blue-500 rounded-lg p-3 text-center bg-[#0D1117]/40 hover:bg-[#0D1117]/85 transition-all cursor-pointer relative"
-                        onClick={() => {
-                          const fileInput = document.getElementById("file-uploader-input");
-                          if (fileInput) fileInput.click();
-                        }}
-                      >
-                        <input 
-                          type="file" 
-                          id="file-uploader-input" 
-                          className="hidden" 
-                          multiple
-                          webkitdirectory="true"
-                          mozdirectory="true"
-                          directory="true"
-                          onChange={(e) => {
-                            if (e.target.files && e.target.files.length > 0) {
-                              handleUploadedFiles(e.target.files);
-                            }
-                          }}
-                        />
-                        <UploadCloud className="w-5 h-5 mx-auto text-blue-400 mb-1" />
-                        <p className="text-[10px] font-bold text-white">Drag & drop or click to upload</p>
-                        <p className="text-[8px] text-slate-500 mt-0.5">Supports files, folders, and full project imports on supported browsers.</p>
-                      </div>
-                    </div>
+{/* Drag-and-drop file uploader */}
+          <div className="space-y-1">
+            <span className="block text-[9px] text-[#8B949E] uppercase font-bold">Upload Local File / Folder / Project</span>
+          
+            {/* Hidden native input hooks configured safely */}
+            <input 
+              type="file" 
+              id="file-uploader-input" 
+              className="hidden" 
+              multiple 
+              onChange={async (e) => { 
+                if (e.target.files && e.target.files.length > 0) { 
+                  await handleUploadedFiles(e.target.files); 
+                  e.target.value = ""; 
+                } 
+              }} 
+            />
+<input 
+  type="file" 
+  id="folder-uploader-input" 
+  className="hidden" 
+  webkitdirectory="true" 
+  mozdirectory="true"
+  directory="true"
+  onChange={async (e) => { 
+    if (e.target.files && e.target.files.length > 0) { 
+      await handleUploadedFiles(e.target.files); 
+      e.target.value = ""; 
+    } 
+  }} 
+/>
+
+            {/* Visual interactive dropbox zone */}
+            <div 
+              onDragOver={(e) => { 
+                e.preventDefault(); 
+                e.stopPropagation(); 
+                try { setIsDragging(true); } catch(err) {}
+              }} 
+              onDragLeave={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                try { setIsDragging(false); } catch(err) {}
+              }}
+              onDrop={async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                try { setIsDragging(false); } catch(err) {}
+                await handleUploaderDrop(e);
+              }} 
+              className={`border-2 border-dashed rounded-lg p-5 text-center transition-all relative z-10 ${
+                typeof isDragging !== 'undefined' && isDragging 
+                  ? "border-blue-500 bg-blue-500/10 scale-[0.98] ring-2 ring-blue-500/20 shadow-[0_0_20px_rgba(56,139,253,0.3)]" 
+                  : "border-[#30363D] bg-[#0D1117]/40 hover:border-[#58a6ff]/80 hover:bg-[#161B22]/60 hover:shadow-[0_0_15px_rgba(56,139,253,0.15)]"
+              }`}
+            >
+              <p className="text-[11px] text-[#8B949E] mb-2.5">Drag & Drop files or folders here</p>
+              <center><CloudUpload size={32} className="m-2 items-center justify-center" /></center>
+              <div className="flex items-center justify-center gap-2 relative z-20">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const el = document.getElementById("file-uploader-input") as HTMLInputElement;
+                    if (el) el.click();
+                  }}
+                  className="px-2.5 py-1 text-[11px] font-medium bg-[#21262D] hover:bg-[#30363D] active:bg-[#3A414A] text-[#C9D1D9] border border-[#30363D] rounded transition-colors flex items-center gap-1 cursor-pointer"
+                >
+                  <File className="w-3 h-3" />
+                  Add Files
+                </button>
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const el = document.getElementById("folder-uploader-input") as HTMLInputElement;
+                    if (el) el.click();
+                  }}
+                  className="px-2.5 py-1 text-[11px] font-medium bg-[#21262D] hover:bg-[#30363D] active:bg-[#3A414A] text-[#C9D1D9] border border-[#30363D] rounded transition-colors flex items-center gap-1 cursor-pointer"
+                >
+                  <Folder className="w-3 h-3" />
+                  Add Folder
+                </button>
+              </div>
+            </div>
+          </div>
 
                     <div>
                       <label className="block text-[9px] text-[#8B949E] uppercase mb-0.5">File or Folder Name</label>
@@ -2452,7 +2766,12 @@ Use this text area to craft premium markdown documentation..."
               <div className={`max-w-2xl mx-auto p-4 rounded-lg transition-all ${
                 previewTheme === "light" ? "gh-markdown-light" : "gh-markdown-dark"
               }`}>
-                {markdown ? (
+                {suspendPreview ? (
+                  <div className="py-24 text-center text-slate-400">
+                    <p className="font-semibold">Rendering preview…</p>
+                    <p className="text-xs mt-1">Preview will update shortly after insertion.</p>
+                  </div>
+                ) : markdown ? (
                   <div className="markdown-body">
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
